@@ -9,6 +9,7 @@ type Option<V> = Option.Option<V>
 type Result<V, E> = Result.Result<V, E>
 type FutureImpl<V> = {
 	__index: FutureImpl<V>,
+	__tostring: (self: Future<V>) -> string,
 	await: (self: Future<V>) -> Result<V, string>,
 	cancel: (self: Future<V>) -> (),
 	on: (self: Future<V>, fn: (r: Result<V, string>) -> ()) -> thread,
@@ -31,6 +32,10 @@ export type Future<V> = typeof(setmetatable(
 -- Class
 local Future = {} :: FutureImpl<unknown>
 Future.__index = Future
+
+function Future:__tostring(): string
+	return `Future<{self._get()}>`
+end
 
 function Future:await(): Result<unknown, string>
 	while coroutine.status(self._thread) ~= "dead" do
@@ -58,7 +63,7 @@ end
 
 return {
 	from = function<V>(fn: () -> V): Future<V>
-		local value: Option<Result<V,string>> = Option.none()
+		local value: Option<Result<V, string>> = Option.none()
 		local thread = task.spawn(function()
 			value = Option.some(Result.try(fn))
 		end)
