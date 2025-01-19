@@ -13,7 +13,7 @@ type FutureImpl<V> = {
 	await: (self: Future<V>) -> Result<V, string>,
 	cancel: (self: Future<V>) -> (),
 	on: (self: Future<V>, fn: (r: Result<V, string>) -> ()) -> thread,
-	poll: (self: Future<V>) -> Option<V>, --technically this is a Poll<V> not an Option<V> in rust
+	poll: (self: Future<V>) -> Option<Result<V, string>>, --technically this is a Poll<V> not an Option<V> in rust
 }
 export type Future<V> = typeof(setmetatable(
 	{} :: {
@@ -50,7 +50,7 @@ function Future:cancel(): ()
 	end
 end
 
-function Future:poll(): Option<unknown>
+function Future:poll(): Option<Result<unknown, string>>
 	return self._get()
 end
 
