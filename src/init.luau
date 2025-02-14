@@ -10,16 +10,16 @@ type Result<V, E> = Result.Result<V, E>
 type FutureImpl<V> = {
 	__index: FutureImpl<V>,
 	__tostring: (self: Future<V>) -> string,
-	await: (self: Future<V>) -> Result<V, string>,
+	await: (self: Future<V>) -> V,
 	cancel: (self: Future<V>) -> (),
-	on: (self: Future<V>, fn: (r: Result<V, string>) -> ()) -> thread,
-	poll: (self: Future<V>) -> Option<Result<V, string>>, --technically this is a Poll<V> not an Option<V> in rust
+	on: (self: Future<V>, fn: (r: V) -> ()) -> thread,
+	poll: (self: Future<V>) -> Option<V>, --technically this is a Poll<V> not an Option<V> in rust
 }
 export type Future<V> = typeof(setmetatable(
 	{} :: {
 		_thread: thread,
 		_cancel: () -> (),
-		_get: () -> Option<Result<V, string>>,
+		_get: () -> Option<V>,
 	},
 	{} :: FutureImpl<V>
 ))
@@ -37,7 +37,7 @@ function Future:__tostring(): string
 	return `Future<{self._get()}>`
 end
 
-function Future:await(): Result<unknown, string>
+function Future:await(): unknown
 	while coroutine.status(self._thread) ~= "dead" do
 		task.wait()
 	end
@@ -50,11 +50,11 @@ function Future:cancel(): ()
 	end
 end
 
-function Future:poll(): Option<Result<unknown, string>>
+function Future:poll(): Option<unknown>
 	return self._get()
 end
 
-function Future:on(fn: (Result<unknown, string>) -> ()): thread
+function Future:on(fn: (unknown) -> ()): thread
 	local thread = task.spawn(function()
 		fn(self:await())
 	end)
@@ -68,8 +68,6 @@ return {
 			value = Option.some(Result.try(fn))
 		end)
 
-		local tracebackMsg = debug.traceback("", 1)
-
 		local isCancelled = false
 		local self: Future<V> = setmetatable({
 			_thread = thread,
@@ -81,15 +79,11 @@ return {
 					end
 				end
 			end,
-			_get = function()
-				return value:match(function(result: Result<V, string>): Option<Result<V, string>>
-					return Option.some(result)
-				end, function(): Option<Result<V, string>>
-					if isCancelled then
-						return Option.some(Result.err(`Future was cancelled\n{tracebackMsg}`))
-					else
-						return Option.none()
-					end
+			_get = function(): Option<V>
+				return value:match(function(result: Result<V, string>): Option<V>
+					return Option.some(result:unwrap())
+				end, function(): Option<V>
+					return Option.none()
 				end)
 			end,
 		}, Future :: FutureImpl<any>)
