@@ -10,6 +10,7 @@ type Result<V, E> = Result.Result<V, E>
 type FutureImpl<V> = {
 	__index: FutureImpl<V>,
 	__tostring: (self: Future<V>) -> string,
+	__eq: (self: Future<V>, other: Future<V>) -> boolean,
 	await: (self: Future<V>) -> V,
 	cancel: (self: Future<V>) -> (),
 	on: (self: Future<V>, fn: (r: V) -> ()) -> thread,
@@ -32,6 +33,10 @@ export type Future<V> = typeof(setmetatable(
 -- Class
 local Future = {} :: FutureImpl<unknown>
 Future.__index = Future
+
+function Future:__eq(other: Future<unknown>): boolean
+	return self._get() == (other._get() :: any)
+end
 
 function Future:__tostring(): string
 	return `Future<{self._get()}>`
