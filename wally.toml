@@ -8,5 +8,5 @@ registry = "https://github.com/upliftgames/wally-index"
 exclude = ["Packages", ".vscode"]
 
 [dependencies]
-Option = "nightcycle/option@0.3.0"
-Result = "nightcycle/result@0.4.0"
+Option = "nightcycle/option@^0"
+Result = "nightcycle/result@^0"

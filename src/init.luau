@@ -7,10 +7,13 @@ local Result = require("@wally/Result")
 -- Types
 type Option<V> = Option.Option<V>
 type Result<V, E> = Result.Result<V, E>
+
+export type ErrorType = "Timeout" | "Cancelled" | "Error"
 type FutureImpl<V> = {
 	__index: FutureImpl<V>,
 	__tostring: (self: Future<V>) -> string,
 	__eq: (self: Future<V>, other: Future<V>) -> boolean,
+	timeout: (self: Future<V>, duration: number) -> Option<V>,
 	await: (self: Future<V>) -> V,
 	cancel: (self: Future<V>) -> (),
 	on: (self: Future<V>, fn: (r: V) -> ()) -> thread,
@@ -42,6 +45,15 @@ function Future:__tostring(): string
 	return `Future<{self._get()}>`
 end
 
+-- promise inspired addition
+function Future:timeout(duration: number): Option<unknown>
+	local start = tick()
+	while coroutine.status(self._thread) ~= "dead" and tick() < start + duration do
+		task.wait()
+	end
+	return self._get()
+end
+
 function Future:await(): unknown
 	while coroutine.status(self._thread) ~= "dead" do
 		task.wait()
@@ -66,33 +78,56 @@ function Future:on(fn: (unknown) -> ()): thread
 	return thread
 end
 
-return {
-	from = function<V>(fn: () -> V): Future<V>
-		local value: Option<Result<V, string>> = Option.none()
-		local thread = task.spawn(function()
-			value = Option.some(Result.try(fn))
-		end)
+function new<V>(fn: () -> V, onCancel: Option<() -> ()>): Future<V>
+	local value: Option<Result<V, string>> = Option.none()
+	local thread = task.spawn(function()
+		value = Option.some(Result.try(fn))
+	end)
 
-		local isCancelled = false
-		local self: Future<V> = setmetatable({
-			_thread = thread,
-			_cancel = function()
-				if isCancelled then
-					isCancelled = false
+	local isCancelled = false
+	local self: Future<V> = setmetatable({
+		_thread = thread,
+		_cancel = function()
+			if not isCancelled then
+				isCancelled = true
+				local success, msg = pcall(function()
 					if coroutine.status(thread) ~= "dead" then
 						task.cancel(thread)
 					end
-				end
-			end,
-			_get = function(): Option<V>
-				return value:match(function(result: Result<V, string>): Option<V>
-					return Option.some(result:unwrap())
-				end, function(): Option<V>
-					return Option.none()
 				end)
-			end,
-		}, Future :: FutureImpl<any>)
-		table.freeze(self)
-		return self
-	end,
+				if not success then
+					warn(msg)
+				end
+				onCancel:inspect(function(callback)
+					callback()
+				end)
+			end
+		end,
+		_get = function(): Option<V>
+			return value:match(function(result: Result<V, string>): Option<V>
+				return Option.some(result:unwrap())
+			end, function(): Option<V>
+				return Option.none()
+			end)
+		end,
+	}, Future :: FutureImpl<any>)
+	table.freeze(self)
+	return self
+end
+
+local complexFrom: (<V>(fn: () -> V, onCancel: () -> ()) -> Future<V>) & (<V>(fn: () -> V) -> Future<V>) = function<V>(
+	fn: (
+	) -> V,
+	onCancel: ((
+	) -> ())?
+): Future<V>
+	if onCancel then
+		return new(fn, Option.some(onCancel))
+	else
+		return new(fn, Option.none())
+	end
+end
+
+return {
+	from = complexFrom,
 }
