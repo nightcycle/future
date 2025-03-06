@@ -105,7 +105,7 @@ function Future:onResult(fn: (Result<unknown, InterruptType>) -> ()): thread
 	end)
 end
 
-function new<V>(fn: () -> V, onCancel: Option<(InterruptType) -> ()>): Future<V>
+function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future<V>
 	local output: Option<Result<V, string>> = Option.none()
 
 	local interruptType: Option<InterruptType> = Option.none()
@@ -118,6 +118,11 @@ function new<V>(fn: () -> V, onCancel: Option<(InterruptType) -> ()>): Future<V>
 			return
 		end
 		interruptType = Option.some(t :: any)
+		onInterrupt:inspect(function(fn)
+			task.spawn(function()
+				fn(t)
+			end)
+		end)
 		task.cancel(thread)
 	end
 
