@@ -118,9 +118,9 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future
 			return
 		end
 		interruptType = Option.some(t :: any)
-		onInterrupt:inspect(function(fn)
+		onInterrupt:inspect(function(onInt)
 			task.spawn(function()
-				fn(t)
+				onInt(t)
 			end)
 		end)
 		task.cancel(thread)
