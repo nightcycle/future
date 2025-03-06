@@ -8,25 +8,24 @@ local Result = require("@wally/Result")
 type Option<V> = Option.Option<V>
 type Result<V, E> = Result.Result<V, E>
 
-export type ErrorType = "Timeout" | "Cancelled" | "Error"
+export type InterruptType = "Timeout" | "Cancelled" | "Error"
 type FutureImpl<V> = {
 	__index: FutureImpl<V>,
 	__tostring: (self: Future<V>) -> string,
 	__eq: (self: Future<V>, other: Future<V>) -> boolean,
-	timeout: (self: Future<V>, duration: number) -> Option<V>,
+	timeout: (self: Future<V>, duration: number) -> Result<V, InterruptType>,
 	await: (self: Future<V>) -> V,
-	awaitResult: (self: Future<V>) -> Result<V, ErrorType>,
+	awaitResult: (self: Future<V>) -> Result<V, InterruptType>,
 	cancel: (self: Future<V>) -> (),
 	on: (self: Future<V>, fn: (r: V) -> ()) -> thread,
+	onResult: (self: Future<V>, fn: (r: Result<V, InterruptType>) -> ()) -> thread,
 	poll: (self: Future<V>) -> Option<V>, --technically this is a Poll<V> not an Option<V> in rust
+	pollResult: (self: Future<V>) -> Option<Result<V, InterruptType>>, --technically this is a Poll<V> not an Option<V> in rust, if err then thead will panic
 }
 export type Future<V> = typeof(setmetatable(
 	{} :: {
-		_thread: thread,
-		_cancel: () -> (),
-		_setError: (ErrorType) -> (),
-		_getError: () -> Option<ErrorType>,
-		_get: () -> Option<V>,
+		_interrupt: (InterruptType) -> (),
+		_get: () -> Option<Result<V, InterruptType>>,
 	},
 	{} :: FutureImpl<V>
 ))
@@ -49,96 +48,94 @@ function Future:__tostring(): string
 end
 
 -- promise inspired addition
-function Future:timeout(duration: number): Option<unknown>
-	local start = tick()
-	while coroutine.status(self._thread) ~= "dead" and tick() < start + duration do
-		task.wait()
-	end
-	self._setError("Timeout")
-	self._cancel()
-	return self._get()
+function Future:timeout(duration: number): Result<unknown, InterruptType>
+	task.delay(duration, function()
+		self._interrupt("Timeout")
+	end)
+	return self:awaitResult()
 end
 
 function Future:await(): unknown
-	while coroutine.status(self._thread) ~= "dead" do
+	while self._get():isNone() do
 		task.wait()
 	end
-	return self._get():expect(debug.traceback(`future was cancelled`, 1))
+	return self:awaitResult():unwrap()
 end
 
-function Future:awaitResult(): Result<unknown, ErrorType>
-	while coroutine.status(self._thread) ~= "dead" do
+function Future:awaitResult(): Result<unknown, InterruptType>
+	while self._get():isNone() do
 		task.wait()
 	end
-	return self._get():match(function(value: unknown): Result<unknown, ErrorType>
-		return Result.ok(value)
-	end, function(): Result<unknown, ErrorType>
-		return Result.err(self._getError():unwrapOr("Cancelled" :: any) :: any)
+	return self._get():unwrap():match(function(v): Result<unknown, InterruptType>
+		return Result.ok(v)
+	end, function(e): Result<unknown, InterruptType>
+		return Result.err(e :: any)
 	end)
 end
 
 function Future:cancel(): ()
-	if coroutine.status(self._thread) ~= "dead" then
-		self._setError("Cancelled")
-		self._cancel()
-	end
+	self._interrupt("Cancelled")
 end
 
 function Future:poll(): Option<unknown>
+	return self._get():match(function(res)
+		return res:match(function(v)
+			return Option.some(v)
+		end, function(e)
+			return Option.none()
+		end)
+	end, function()
+		return Option.none()
+	end)
+end
+
+function Future:pollResult(): Option<Result<unknown, InterruptType>>
 	return self._get()
 end
 
 function Future:on(fn: (unknown) -> ()): thread
-	local thread = task.spawn(function()
-		fn(self:await())
+	return self:onResult(function(res)
+		res:inspect(fn)
 	end)
-	return thread
 end
 
-function new<V>(fn: () -> V, onCancel: Option<(ErrorType) -> ()>): Future<V>
-	local value: Option<Result<V, string>> = Option.none()
-	local errOption: Option<ErrorType> = Option.none()
+function Future:onResult(fn: (Result<unknown, InterruptType>) -> ()): thread
+	return task.spawn(function()
+		fn(self:awaitResult())
+	end)
+end
 
+function new<V>(fn: () -> V, onCancel: Option<(InterruptType) -> ()>): Future<V>
+	local output: Option<Result<V, string>> = Option.none()
+
+	local interruptType: Option<InterruptType> = Option.none()
 	local thread = task.spawn(function()
-		local res = Result.try(fn)
-		res:inspectErr(function(err: string)
-			errOption = Option.some("Error" :: any)
-		end)
-		value = Option.some(Result.try(fn))
+		output = Option.some(Result.try(fn))
 	end)
 
-	local isCancelled = false
-	local self: Future<V> = setmetatable({
-		_thread = thread,
-		_setError = function(errType: ErrorType)
-			if not isCancelled then
-				errOption = Option.some(errType :: any)
-			end
-		end,
-		_cancel = function()
-			if not isCancelled then
-				isCancelled = true
-				local success, msg = pcall(function()
-					if coroutine.status(thread) ~= "dead" then
-						task.cancel(thread)
-					end
+	local function interrupt(t: InterruptType): ()
+		if interruptType:isNone() or output:isSome() then
+			return
+		end
+		interruptType = Option.some(t :: any)
+		task.cancel(thread)
+	end
+
+	local self = setmetatable({
+		_interrupt = interrupt,
+		_get = function(): Option<Result<V, InterruptType>>
+			return interruptType:match(function(t): Option<Result<V, InterruptType>>
+				return Option.some(Result.err(interruptType:unwrap() :: any))
+			end, function(): Option<Result<V, InterruptType>>
+				return output:match(function(res)
+					return res:match(function(v)
+						return Option.some(Result.ok(v))
+					end, function(e)
+						return Option.some(Result.err("Error" :: any))
+					end)
+				end, function()
+					return Option.none()
 				end)
-				if not success then
-					warn(msg)
-				end
-				onCancel:inspect(function(callback)
-					callback(errOption:unwrapOr("Cancelled" :: any))
-				end)
-			end
-		end,
-		_getError = function(): Option<ErrorType>
-			return errOption
-		end,
-		_get = function(): Option<V>
-			return value:match(function(result: Result<V, string>): Option<V>
-				return Option.some(result:unwrap())
-			end, function(): Option<V>
-				return Option.none()
 			end)
 		end,
 	}, Future :: FutureImpl<any>)
@@ -146,17 +143,19 @@ function new<V>(fn: () -> V, onCancel: Option<(ErrorType) -> ()>): Future<V>
 	return self
 end
 
-local complexFrom: (<V>(fn: () -> V, onCancel: (ErrorType) -> ()) -> Future<V>) & (<V>(fn: () -> V) -> Future<V>) = function<V>(
+local complexFrom: (<V>(fn: () -> V, onInterrupt: (InterruptType) -> ()) -> Future<V>) & (<V>(fn: () -> V) -> Future<V>) = function<
+	V
+>(
 	fn: (
 	) -> V,
-	onCancel: (
-		(ErrorType) -> ()
+	onInterrupt: (
+		(InterruptType) -> ()
 	)?
 ): Future<
 	V
 >
-	if onCancel then
-		return new(fn, Option.some(onCancel))
+	if onInterrupt then
+		return new(fn, Option.some(onInterrupt))
 	else
 		return new(fn, Option.none())
 	end
