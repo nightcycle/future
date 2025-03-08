@@ -1,31 +1,34 @@
 --!strict
 local Option = require("@wally/Option")
 local Result = require("@wally/Result")
+local Error = require("@wally/Error")
 -- Services
 -- Packages
 -- Modules
 -- Types
 type Option<V> = Option.Option<V>
 type Result<V, E> = Result.Result<V, E>
+type Error<E, D> = Error.Error<E, D>
 
-export type InterruptType = "Timeout" | "Cancelled" | "Error"
+export type InterruptType = "Timeout" | "Cancelled"
+export type InterruptError = Error<"Interrupt", InterruptType> | Error<"Panic", string>
 type FutureImpl<V> = {
 	__index: FutureImpl<V>,
 	__tostring: (self: Future<V>) -> string,
 	__eq: (self: Future<V>, other: Future<V>) -> boolean,
-	timeout: (self: Future<V>, duration: number) -> Result<V, InterruptType>,
+	timeout: (self: Future<V>, duration: number) -> Result<V, InterruptError>,
 	await: (self: Future<V>) -> V,
-	awaitResult: (self: Future<V>) -> Result<V, InterruptType>,
+	awaitResult: (self: Future<V>) -> Result<V, InterruptError>,
 	cancel: (self: Future<V>) -> (),
 	on: (self: Future<V>, fn: (r: V) -> ()) -> thread,
-	onResult: (self: Future<V>, fn: (r: Result<V, InterruptType>) -> ()) -> thread,
+	onResult: (self: Future<V>, fn: (r: Result<V, InterruptError>) -> ()) -> thread,
 	poll: (self: Future<V>) -> Option<V>, --technically this is a Poll<V> not an Option<V> in rust
-	pollResult: (self: Future<V>) -> Option<Result<V, InterruptType>>, --technically this is a Poll<V> not an Option<V> in rust, if err then thead will panic
+	pollResult: (self: Future<V>) -> Option<Result<V, InterruptError>>, --technically this is a Poll<V> not an Option<V> in rust, if err then thead will panic
 }
 export type Future<V> = typeof(setmetatable(
 	{} :: {
 		_interrupt: (InterruptType) -> (),
-		_get: () -> Option<Result<V, InterruptType>>,
+		_get: () -> Option<Result<V, InterruptError>>,
 	},
 	{} :: FutureImpl<V>
 ))
@@ -48,7 +51,7 @@ function Future:__tostring(): string
 end
 
 -- promise inspired addition
-function Future:timeout(duration: number): Result<unknown, InterruptType>
+function Future:timeout(duration: number): Result<unknown, InterruptError>
 	task.delay(duration, function()
 		self._interrupt("Timeout")
 	end)
@@ -62,13 +65,13 @@ function Future:await(): unknown
 	return self:awaitResult():unwrap()
 end
 
-function Future:awaitResult(): Result<unknown, InterruptType>
+function Future:awaitResult(): Result<unknown, InterruptError>
 	while self._get():isNone() do
 		task.wait()
 	end
-	return self._get():unwrap():match(function(v): Result<unknown, InterruptType>
+	return self._get():unwrap():match(function(v): Result<unknown, InterruptError>
 		return Result.ok(v)
-	end, function(e): Result<unknown, InterruptType>
+	end, function(e): Result<unknown, InterruptError>
 		return Result.err(e :: any)
 	end)
 end
@@ -89,7 +92,7 @@ function Future:poll(): Option<unknown>
 	end)
 end
 
-function Future:pollResult(): Option<Result<unknown, InterruptType>>
+function Future:pollResult(): Option<Result<unknown, InterruptError>>
 	return self._get()
 end
 
@@ -99,13 +102,15 @@ function Future:on(fn: (unknown) -> ()): thread
 	end)
 end
 
-function Future:onResult(fn: (Result<unknown, InterruptType>) -> ()): thread
+function Future:onResult(fn: (Result<unknown, InterruptError>) -> ()): thread
 	return task.spawn(function()
 		fn(self:awaitResult())
 	end)
 end
 
 function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future<V>
+	local trace = Error.trace(1)
+
 	local output: Option<Result<V, string>> = Option.none()
 
 	local interruptType: Option<InterruptType> = Option.none()
@@ -128,15 +133,33 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future
 
 	local self = setmetatable({
 		_interrupt = interrupt,
-		_get = function(): Option<Result<V, InterruptType>>
-			return interruptType:match(function(t): Option<Result<V, InterruptType>>
-				return Option.some(Result.err(interruptType:unwrap() :: any))
-			end, function(): Option<Result<V, InterruptType>>
+		_get = function(): Option<Result<V, InterruptError>>
+			return interruptType:match(function(t): Option<Result<V, InterruptError>>
+				return Option.some(
+					Result.err(
+						Error.new("Interrupt" :: any)
+							:body(t :: any)
+							:title("Future Interrupted")
+							:description("A public facing future method was called that interrupted the future")
+							:trace(trace)
+							:build() :: InterruptError
+					)
+				)
+			end, function(): Option<Result<V, InterruptError>>
 				return output:match(function(res)
 					return res:match(function(v)
 						return Option.some(Result.ok(v))
 					end, function(e)
-						return Option.some(Result.err("Error" :: any))
+						return Option.some(
+							Result.err(
+								Error.new("Panic" :: any)
+									:body(e)
+									:title("Future Panicked")
+									:description("Future encountered an error within the provided process")
+									:trace(trace)
+									:build() :: InterruptError
+							)
+						)
 					end)
 				end, function()
 					return Option.none()
