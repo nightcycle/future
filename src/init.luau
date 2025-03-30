@@ -14,16 +14,16 @@ export type InterruptType = "Timeout" | "Cancelled"
 export type InterruptError = Error<"Interrupt", InterruptType> | Error<"Panic", string>
 type FutureImpl<V> = {
 	__index: FutureImpl<V>,
-	__tostring: (self: Future<V>) -> string,
-	__eq: (self: Future<V>, other: Future<V>) -> boolean,
-	timeout: (self: Future<V>, duration: number) -> Result<V, InterruptError>,
-	await: (self: Future<V>) -> V,
-	awaitResult: (self: Future<V>) -> Result<V, InterruptError>,
-	cancel: (self: Future<V>) -> (),
-	on: (self: Future<V>, fn: (r: V) -> ()) -> thread,
-	onResult: (self: Future<V>, fn: (r: Result<V, InterruptError>) -> ()) -> thread,
-	poll: (self: Future<V>) -> Option<V>, --technically this is a Poll<V> not an Option<V> in rust
-	pollResult: (self: Future<V>) -> Option<Result<V, InterruptError>>, --technically this is a Poll<V> not an Option<V> in rust, if err then thead will panic
+	__tostring: (self: any) -> string,
+	__eq: (self: any, other: Future<V>) -> boolean,
+	timeout: (self: any, duration: number) -> Result<V, InterruptError>,
+	await: (self: any) -> V,
+	awaitResult: (self: any) -> Result<V, InterruptError>,
+	cancel: (self: any) -> (),
+	on: (self: any, fn: (r: V) -> ()) -> thread,
+	onResult: (self: any, fn: (r: Result<V, InterruptError>) -> ()) -> thread,
+	poll: (self: any) -> Option<V>, --technically this is a Poll<V> not an Option<V> in rust
+	pollResult: (self: any) -> Option<Result<V, InterruptError>>, --technically this is a Poll<V> not an Option<V> in rust, if err then thead will panic
 }
 export type Future<V> = typeof(setmetatable(
 	{} :: {
