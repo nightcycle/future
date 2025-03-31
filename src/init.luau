@@ -37,6 +37,52 @@ export type Future<V> = typeof(setmetatable(
 -- Variables
 -- References
 -- Private Functions
+function getIfRobloxEnv(): boolean
+	local isRobloxEnv = pcall(function()
+		local _ = task.spawn
+	end)
+	return isRobloxEnv
+end
+
+function taskSpawn(fn: () -> ()): thread
+	if getIfRobloxEnv() then
+		return task.spawn(fn)
+	else
+		local req: any = require
+		local task = req("@lune/task")
+		return task.spawn(fn)
+	end
+end
+
+function taskCancel(thread: thread): ()
+	if getIfRobloxEnv() then
+		return task.cancel(thread)
+	else
+		local req: any = require
+		local task = req("@lune/task")
+		return task.cancel(thread)
+	end
+end
+
+function taskWait(amount: number?)
+	if getIfRobloxEnv() then
+		return task.wait(amount)
+	else
+		local req: any = require
+		local task = req("@lune/task")
+		return task.wait(amount)
+	end
+end
+
+function taskDelay(amount: number, fn: () -> ())
+	if getIfRobloxEnv() then
+		return task.delay(amount, fn)
+	else
+		local req: any = require
+		local task = req("@lune/task")
+		return task.delay(amount, fn)
+	end
+end
 
 -- Class
 local Future = {} :: FutureImpl<unknown>
@@ -52,7 +98,7 @@ end
 
 -- promise inspired addition
 function Future:timeout(duration: number): Result<unknown, InterruptError>
-	task.delay(duration, function()
+	taskDelay(duration, function()
 		self._interrupt("Timeout")
 	end)
 	return self:awaitResult()
@@ -60,14 +106,14 @@ end
 
 function Future:await(): unknown
 	while self._get():isNone() do
-		task.wait()
+		taskWait()
 	end
 	return self:awaitResult():unwrap()
 end
 
 function Future:awaitResult(): Result<unknown, InterruptError>
 	while self._get():isNone() do
-		task.wait()
+		taskWait()
 	end
 	return self._get():unwrap():match(function(v): Result<unknown, InterruptError>
 		return Result.ok(v)
@@ -103,7 +149,7 @@ function Future:on(fn: (unknown) -> ()): thread
 end
 
 function Future:onResult(fn: (Result<unknown, InterruptError>) -> ()): thread
-	return task.spawn(function()
+	return taskSpawn(function()
 		fn(self:awaitResult())
 	end)
 end
@@ -114,7 +160,7 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future
 	local output: Option<Result<V, string>> = Option.none()
 
 	local interruptType: Option<InterruptType> = Option.none()
-	local thread = task.spawn(function()
+	local thread = taskSpawn(function()
 		output = Option.some(Result.try(fn))
 	end)
 
@@ -124,11 +170,11 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future
 		end
 		interruptType = Option.some(t :: any)
 		onInterrupt:inspect(function(onInt)
-			task.spawn(function()
+			taskSpawn(function()
 				onInt(t)
 			end)
 		end)
-		task.cancel(thread)
+		taskCancel(thread)
 	end
 
 	local self = setmetatable({
