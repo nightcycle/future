@@ -1,7 +1,7 @@
 --!strict
-local Option = require("@wally/Option")
-local Result = require("@wally/Result")
-local Error = require("@wally/Error")
+local Option = require("@pkg/@nightcycle/Option")
+local Result = require("@pkg/@nightcycle/result")
+local Error = require("@pkg/@nightcycle/Error")
 -- Services
 -- Packages
 -- Modules
@@ -186,7 +186,9 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future
 						Error.new("Interrupt" :: any)
 							:body(t :: any)
 							:title("Future Interrupted")
-							:description("A public facing future method was called that interrupted the future")
+							:description(
+								"A public facing future method was called that interrupted the future"
+							)
 							:trace(trace)
 							:build() :: InterruptError
 					)
