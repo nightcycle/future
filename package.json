@@ -15,7 +15,8 @@
 	"dependencies": {
 		"@nightcycle/option": "^0",
 		"@nightcycle/result": "^0",
-		"@nightcycle/error": "^0"
+		"@nightcycle/error": "^0",
+		"@nightcycle/lune-util": "^0"
 	},
 	"devDependencies": {
 		"npmluau": "^0.1.1"

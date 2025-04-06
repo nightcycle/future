@@ -1,7 +1,8 @@
 --!strict
-local Option = require("@pkg/@nightcycle/Option")
+local Option = require("@pkg/@nightcycle/option")
 local Result = require("@pkg/@nightcycle/result")
-local Error = require("@pkg/@nightcycle/Error")
+local Error = require("@pkg/@nightcycle/error")
+local LuneUtil = require("@pkg/@nightcycle/lune-util")
 -- Services
 -- Packages
 -- Modules
@@ -37,52 +38,6 @@ export type Future<V> = typeof(setmetatable(
 -- Variables
 -- References
 -- Private Functions
-function getIfRobloxEnv(): boolean
-	local isRobloxEnv = pcall(function()
-		local _ = task.spawn
-	end)
-	return isRobloxEnv
-end
-
-function taskSpawn(fn: () -> ()): thread
-	if getIfRobloxEnv() then
-		return task.spawn(fn)
-	else
-		local req: any = require
-		local task = req("@lune/task")
-		return task.spawn(fn)
-	end
-end
-
-function taskCancel(thread: thread): ()
-	if getIfRobloxEnv() then
-		return task.cancel(thread)
-	else
-		local req: any = require
-		local task = req("@lune/task")
-		return task.cancel(thread)
-	end
-end
-
-function taskWait(amount: number?)
-	if getIfRobloxEnv() then
-		return task.wait(amount)
-	else
-		local req: any = require
-		local task = req("@lune/task")
-		return task.wait(amount)
-	end
-end
-
-function taskDelay(amount: number, fn: () -> ())
-	if getIfRobloxEnv() then
-		return task.delay(amount, fn)
-	else
-		local req: any = require
-		local task = req("@lune/task")
-		return task.delay(amount, fn)
-	end
-end
 
 -- Class
 local Future = {} :: FutureImpl<unknown>
@@ -97,8 +52,8 @@ function Future:__tostring(): string
 end
 
 -- promise inspired addition
-function Future:timeout(duration: number): Result<unknown, InterruptError>
-	taskDelay(duration, function()
+function Future:timeout(duration: number)
+	LuneUtil.Task.delay(duration, function()
 		self._interrupt("Timeout")
 	end)
 	return self:awaitResult()
@@ -106,18 +61,18 @@ end
 
 function Future:await(): unknown
 	while self._get():isNone() do
-		taskWait()
+		LuneUtil.Task.wait()
 	end
 	return self:awaitResult():unwrap()
 end
 
-function Future:awaitResult(): Result<unknown, InterruptError>
+function Future:awaitResult()
 	while self._get():isNone() do
-		taskWait()
+		LuneUtil.Task.wait()
 	end
-	return self._get():unwrap():match(function(v): Result<unknown, InterruptError>
+	return self._get():unwrap():match(function(v)
 		return Result.ok(v)
-	end, function(e): Result<unknown, InterruptError>
+	end, function(e)
 		return Result.err(e :: any)
 	end)
 end
@@ -126,7 +81,7 @@ function Future:cancel(): ()
 	self._interrupt("Cancelled")
 end
 
-function Future:poll(): Option<unknown>
+function Future:poll()
 	return self._get():match(function(res)
 		return res:match(function(v)
 			return Option.some(v)
@@ -138,7 +93,7 @@ function Future:poll(): Option<unknown>
 	end)
 end
 
-function Future:pollResult(): Option<Result<unknown, InterruptError>>
+function Future:pollResult()
 	return self._get()
 end
 
@@ -149,18 +104,18 @@ function Future:on(fn: (unknown) -> ()): thread
 end
 
 function Future:onResult(fn: (Result<unknown, InterruptError>) -> ()): thread
-	return taskSpawn(function()
+	return LuneUtil.Task.spawn(function()
 		fn(self:awaitResult())
 	end)
 end
 
-function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future<V>
+function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>)
 	local trace = Error.trace(1)
 
 	local output: Option<Result<V, string>> = Option.none()
 
 	local interruptType: Option<InterruptType> = Option.none()
-	local thread = taskSpawn(function()
+	local thread = LuneUtil.Task.spawn(function()
 		output = Option.some(Result.try(fn))
 	end)
 
@@ -170,17 +125,17 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future
 		end
 		interruptType = Option.some(t :: any)
 		onInterrupt:inspect(function(onInt)
-			taskSpawn(function()
+			LuneUtil.Task.spawn(function()
 				onInt(t)
 			end)
 		end)
-		taskCancel(thread)
+		LuneUtil.Task.cancel(thread)
 	end
 
 	local self = setmetatable({
 		_interrupt = interrupt,
-		_get = function(): Option<Result<V, InterruptError>>
-			return interruptType:match(function(t): Option<Result<V, InterruptError>>
+		_get = function()
+			return interruptType:match(function(t)
 				return Option.some(
 					Result.err(
 						Error.new("Interrupt" :: any)
@@ -193,7 +148,7 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>): Future
 							:build() :: InterruptError
 					)
 				)
-			end, function(): Option<Result<V, InterruptError>>
+			end, function()
 				return output:match(function(res)
 					return res:match(function(v)
 						return Option.some(Result.ok(v))
