@@ -171,7 +171,7 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>)
 		end,
 	}, Future :: FutureImpl<any>)
 	table.freeze(self)
-	return self
+	return self :: any
 end
 
 local complexFrom: (<V>(fn: () -> V, onInterrupt: (InterruptType) -> ()) -> Future<V>) & (<V>(fn: () -> V) -> Future<V>) = function<
