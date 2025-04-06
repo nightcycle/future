@@ -23,6 +23,8 @@ luau-lsp analyze \
 	--sourcemap="darklua-sourcemap.json" \
 	--ignore="**/Packages/**" \
 	--ignore="Packages/**" \
+	--ignore="**/node_modules/**" \
+	--ignore="node_modules/**" \
 	--ignore="*.spec.luau" \
 	--settings=".luau-analyze.json" \
 	--definitions="types/globalTypes.d.lua" \
