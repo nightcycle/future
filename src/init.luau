@@ -26,13 +26,14 @@ type FutureImpl<V> = {
 	poll: (self: any) -> Option<V>, --technically this is a Poll<V> not an Option<V> in rust
 	pollResult: (self: any) -> Option<Result<V, InterruptError>>, --technically this is a Poll<V> not an Option<V> in rust, if err then thead will panic
 }
-export type Future<V> = typeof(setmetatable(
-	{} :: {
-		_interrupt: (InterruptType) -> (),
-		_get: () -> Option<Result<V, InterruptError>>,
-	},
-	{} :: FutureImpl<V>
-))
+export type Future<V> = FutureImpl<V>
+-- typeof(setmetatable(
+-- 	{} :: {
+-- 		_interrupt: (InterruptType) -> (),
+-- 		_get: () -> Option<Result<V, InterruptError>>,
+-- 	},
+-- 	{} :: FutureImpl<V>
+-- ))
 
 -- Constants
 -- Variables
@@ -44,7 +45,8 @@ local Future = {} :: FutureImpl<unknown>
 Future.__index = Future
 
 function Future:__eq(other: Future<unknown>): boolean
-	return self._get() == (other._get() :: any)
+	local ot: any = other
+	return self._get() == (ot._get() :: any)
 end
 
 function Future:__tostring(): string
