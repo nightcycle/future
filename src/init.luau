@@ -19,12 +19,12 @@ type FutureImpl<V> = {
 	__eq: (self: any, other: Future<V>) -> boolean,
 	timeout: (self: any, duration: number) -> Result<V, InterruptError>,
 	await: (self: any) -> V,
-	awaitResult: (self: any) -> Result<V, InterruptError>,
+	-- awaitResult: (self: any) -> Result<V, InterruptError>,
 	cancel: (self: any) -> (),
 	on: (self: any, fn: (r: V) -> ()) -> thread,
-	onResult: (self: any, fn: (r: Result<V, InterruptError>) -> ()) -> thread,
+	-- onResult: (self: any, fn: (r: Result<V, InterruptError>) -> ()) -> thread,
 	poll: (self: any) -> Option<V>, --technically this is a Poll<V> not an Option<V> in rust
-	pollResult: (self: any) -> Option<Result<V, InterruptError>>, --technically this is a Poll<V> not an Option<V> in rust, if err then thead will panic
+	-- pollResult: (self: any) -> Option<Result<V, InterruptError>>, --technically this is a Poll<V> not an Option<V> in rust, if err then thead will panic
 }
 export type Future<V> = FutureImpl<V>
 -- typeof(setmetatable(
@@ -68,7 +68,9 @@ function Future:await(): unknown
 	return self:awaitResult():unwrap()
 end
 
-function Future:awaitResult()
+local DeprecatedFuture: any = Future
+
+function DeprecatedFuture:awaitResult()
 	while self._get():isNone() do
 		LuneUtil.Task.wait()
 	end
@@ -95,7 +97,7 @@ function Future:poll()
 	end)
 end
 
-function Future:pollResult()
+function DeprecatedFuture:pollResult()
 	return self._get()
 end
 
@@ -105,7 +107,7 @@ function Future:on(fn: (unknown) -> ()): thread
 	end)
 end
 
-function Future:onResult(fn: (Result<unknown, InterruptError>) -> ()): thread
+function DeprecatedFuture:onResult(fn: (Result<unknown, InterruptError>) -> ()): thread
 	return LuneUtil.Task.spawn(function()
 		fn(self:awaitResult())
 	end)
