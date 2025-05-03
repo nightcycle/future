@@ -160,9 +160,8 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>)
 						return Option.some(
 							Result.err(
 								Error.new("Panic" :: any)
-									:body(e)
 									:title("Future Panicked")
-									:description("Future encountered an error within the provided process")
+									:description(e)
 									:trace(trace)
 									:build() :: InterruptError
 							)
