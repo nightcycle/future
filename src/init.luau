@@ -41,7 +41,7 @@ function Future:await(): unknown
 	return self:awaitResult():match(function(v)
 		return v
 	end, function(t)
-		error(Error.new("Future did not complete because: " .. tostring(t)))
+		error("Future did not complete because: " .. tostring(t))
 	end)
 end
 
@@ -85,12 +85,18 @@ end
 function new<V>(fn: () -> V)
 	local output: Option<V> = Option.none()
 	local interruptType: Option<InterruptType> = Option.none()
+	local thread: Option<thread> = Option.none()
 
 	local function interrupt(t: InterruptType)
 		if interruptType:isSome() or output:isSome() then
 			return
 		end
 		interruptType = Option.some(t :: any)
+		thread:inspect(function(t)
+			if t then
+				LuneUtil.Task.cancel(t)
+			end
+		end)
 	end
 
 	local function yieldUntil(): Result<V, InterruptType>
@@ -108,7 +114,9 @@ function new<V>(fn: () -> V)
 		if interruptType:isSome() or output:isSome() then
 			return
 		end
-		output = Option.some(fn())
+		thread = Option.some(LuneUtil.Task.spawn(function()
+			output = Option.some(fn())
+		end))
 	end
 
 	local self = setmetatable({
