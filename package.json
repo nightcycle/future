@@ -13,8 +13,8 @@
 		"prepare": "npmluau"
 	},
 	"dependencies": {
-		"@nightcycle/option": "^0",
-		"@nightcycle/result": "^0",
+		"@nightcycle/option": "^1",
+		"@nightcycle/result": "^1",
 		"@nightcycle/error": "^0",
 		"@nightcycle/lune-util": "^0"
 	},
