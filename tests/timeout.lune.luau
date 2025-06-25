@@ -20,7 +20,7 @@ do
 	assert(not started, "Future should not have started yet")
 	local outRes = f:timeout(0.25)
 	assert(started, "Future should have started")
-	assert(finished, "Future should have finished")
+	assert(not finished, "Future should have not finished")
 	assert("Timeout" == outRes:unwrapErr(), "Future output is not a timeout error")
 	print(" - killed successfully")
 end
