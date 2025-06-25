@@ -92,11 +92,7 @@ function new<V>(fn: () -> V)
 			return
 		end
 		interruptType = Option.some(t :: any)
-		thread:inspect(function(t)
-			if t then
-				LuneUtil.Task.cancel(t)
-			end
-		end)
+		thread:inspect(LuneUtil.Task.cancel)
 	end
 
 	local function yieldUntil(): Result<V, InterruptType>
