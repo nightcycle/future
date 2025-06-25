@@ -12,28 +12,14 @@ type Result<V, E> = Result.Result<V, E>
 type Error<E, D> = Error.Error<E, D>
 
 export type InterruptType = "Timeout" | "Cancelled"
-export type InterruptError = Error<"Interrupt", InterruptType> | Error<"Panic", string>
 type FutureImpl<V> = {
-	__index: FutureImpl<V>,
-	__tostring: (self: any) -> string,
-	__eq: (self: any, other: Future<V>) -> boolean,
-	timeout: (self: any, duration: number) -> Result<V, InterruptError>,
+	timeout: (self: any, duration: number) -> Result<V, InterruptType>,
 	await: (self: any) -> V,
-	-- awaitResult: (self: any) -> Result<V, InterruptError>,
+	awaitResult: (self: any) -> Result<V, InterruptType>,
 	cancel: (self: any) -> (),
-	on: (self: any, fn: (r: V) -> ()) -> thread,
-	-- onResult: (self: any, fn: (r: Result<V, InterruptError>) -> ()) -> thread,
-	poll: (self: any) -> Option<V>, --technically this is a Poll<V> not an Option<V> in rust
-	-- pollResult: (self: any) -> Option<Result<V, InterruptError>>, --technically this is a Poll<V> not an Option<V> in rust, if err then thead will panic
+	poll: (self: any) -> Option<V>,
 }
 export type Future<V> = FutureImpl<V>
--- typeof(setmetatable(
--- 	{} :: {
--- 		_interrupt: (InterruptType) -> (),
--- 		_get: () -> Option<Result<V, InterruptError>>,
--- 	},
--- 	{} :: FutureImpl<V>
--- ))
 
 -- Constants
 -- Variables
@@ -42,16 +28,6 @@ export type Future<V> = FutureImpl<V>
 
 -- Class
 local Future = {} :: FutureImpl<unknown>
-Future.__index = Future
-
-function Future:__eq(other: Future<unknown>): boolean
-	local ot: any = other
-	return self._get() == (ot._get() :: any)
-end
-
-function Future:__tostring(): string
-	return `Future<{self._get()}>`
-end
 
 -- promise inspired addition
 function Future:timeout(duration: number)
@@ -62,23 +38,16 @@ function Future:timeout(duration: number)
 end
 
 function Future:await(): unknown
-	while self._get():isNone() do
-		LuneUtil.Task.wait()
-	end
-	return self:awaitResult():unwrap()
+	return self:awaitResult():match(function(v)
+		return v
+	end, function(t)
+		error(Error.new("Future did not complete because: " .. tostring(t)))
+	end)
 end
 
-local DeprecatedFuture: any = Future
-
-function DeprecatedFuture:awaitResult()
-	while self._get():isNone() do
-		LuneUtil.Task.wait()
-	end
-	return self._get():unwrap():match(function(v)
-		return Result.ok(v)
-	end, function(e)
-		return Result.err(e :: any)
-	end)
+function Future:awaitResult()
+	self._start()
+	return self._yieldUntil()
 end
 
 function Future:cancel(): ()
@@ -97,76 +66,61 @@ function Future:poll()
 	end)
 end
 
+local DeprecatedFuture: any = Future
+DeprecatedFuture.__index = Future
+
+function DeprecatedFuture:__eq(other: Future<unknown>): boolean
+	local ot: any = other
+	return self._get() == (ot._get() :: any)
+end
+
+function DeprecatedFuture:__tostring(): string
+	return `Future<{self._get()}>`
+end
+
 function DeprecatedFuture:pollResult()
 	return self._get()
 end
 
-function Future:on(fn: (unknown) -> ()): thread
-	return self:onResult(function(res)
-		res:inspect(fn)
-	end)
-end
-
-function DeprecatedFuture:onResult(fn: (Result<unknown, InterruptError>) -> ()): thread
-	return LuneUtil.Task.spawn(function()
-		fn(self:awaitResult())
-	end)
-end
-
-function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>)
-	local trace = Error.trace(1)
-
-	local output: Option<Result<V, string>> = Option.none()
-
+function new<V>(fn: () -> V)
+	local output: Option<V> = Option.none()
 	local interruptType: Option<InterruptType> = Option.none()
-	local thread = LuneUtil.Task.spawn(function()
-		output = Option.some(Result.try(fn))
-	end)
 
-	local function interrupt(t: InterruptType): ()
-		if interruptType:isNone() or output:isSome() then
+	local function interrupt(t: InterruptType)
+		if interruptType:isSome() or output:isSome() then
 			return
 		end
 		interruptType = Option.some(t :: any)
-		onInterrupt:inspect(function(onInt)
-			LuneUtil.Task.spawn(function()
-				onInt(t)
-			end)
-		end)
-		LuneUtil.Task.cancel(thread)
+	end
+
+	local function yieldUntil(): Result<V, InterruptType>
+		while output:isNone() and interruptType:isNone() do
+			LuneUtil.Task.wait()
+		end
+		return interruptType:match(function(t)
+			return Result.err(t :: InterruptType)
+		end, function()
+			return Result.ok(output:expect("Future should have output by now"))
+		end) :: Result<V, any>
+	end
+
+	local function start()
+		if interruptType:isSome() or output:isSome() then
+			return
+		end
+		output = Option.some(fn())
 	end
 
 	local self = setmetatable({
 		_interrupt = interrupt,
+		_start = start,
+		_yieldUntil = yieldUntil,
 		_get = function()
 			return interruptType:match(function(t)
-				return Option.some(
-					Result.err(
-						Error.new("Interrupt" :: any)
-							:body(t :: any)
-							:title("Future Interrupted")
-							:description(
-								"A public facing future method was called that interrupted the future"
-							)
-							:trace(trace)
-							:build() :: InterruptError
-					)
-				)
+				return Option.some(Result.err(t))
 			end, function()
-				return output:match(function(res)
-					return res:match(function(v)
-						return Option.some(Result.ok(v))
-					end, function(e)
-						return Option.some(
-							Result.err(
-								Error.new("Panic" :: any)
-									:title("Future Panicked")
-									:description(e)
-									:trace(trace)
-									:build() :: InterruptError
-							)
-						)
-					end)
+				return output:match(function(v)
+					return Option.some(Result.ok(v))
 				end, function()
 					return Option.none()
 				end)
@@ -177,24 +131,8 @@ function new<V>(fn: () -> V, onInterrupt: Option<(InterruptType) -> ()>)
 	return self :: any
 end
 
-local complexFrom: (<V>(fn: () -> V, onInterrupt: (InterruptType) -> ()) -> Future<V>) & (<V>(fn: () -> V) -> Future<V>) = function<
-	V
->(
-	fn: (
-	) -> V,
-	onInterrupt: (
-		(InterruptType) -> ()
-	)?
-): Future<
-	V
->
-	if onInterrupt then
-		return new(fn, Option.some(onInterrupt))
-	else
-		return new(fn, Option.none())
-	end
-end
-
 return {
-	from = complexFrom,
+	from = function<V>(fn: () -> V): Future<V>
+		return new(fn)
+	end,
 }

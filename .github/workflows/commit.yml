@@ -5,7 +5,7 @@ on:
 
 jobs:
 
-  validate:
+  validate_wally:
     runs-on: windows-latest
 
     strategy:
@@ -30,3 +30,37 @@ jobs:
 
       - name: validate project
         run: sh scripts/validate.sh "${{env.ROJO_CONFIG}}" --wally
+
+  validate_npm:
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        scene: [main]
+        include:
+          - name: main
+
+    env:
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+      ROJO_CONFIG: "dev.project.json"
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: ok-nick/setup-aftman@v0.4.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v3
+        with:
+            node-version: latest
+            registry-url: https://registry.npmjs.org
+            cache: npm
+            cache-dependency-path: package-lock.json
+
+      - name: install node packages
+        run: sh scripts/npm-install.sh
+      - name: build validate project
+        run: sh scripts/validate.sh
+      - name: ruun unit tests
+        run: sh tests/run-all.sh
